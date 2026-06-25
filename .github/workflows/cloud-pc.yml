@@ -1,1 +1,64 @@
+name: Windows Cloud PC - Anydesk (Optimized)
 
+on:
+  workflow_dispatch:
+    inputs:
+      discord_id:
+        description: 'ID do Discord do Usuario'
+        required: true
+        type: string
+      id_sessao:
+        description: 'ID da Sessao gerado pelo Bot'
+        required: true
+        type: string
+
+jobs:
+  build:
+    name: Start Building...
+    runs-on: windows-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install Python Dependencies
+        run: |
+          pip install supabase pyautogui psutil requests --quiet
+
+      - name: Install AnyDesk via Chocolatey
+        run: |
+          choco install anydesk -y --ignore-checksums --force --no-progress --pre
+
+      - name: Run Dynamic Configuration Script
+        run: |
+          # Passa o discord_id (arg 1) e o id_sessao (arg 2) para o Python
+          python configurar_vm.py ${{ github.event.inputs.discord_id }} ${{ github.event.inputs.id_sessao }}
+
+      - name: Monitor and Keep Alive Loop
+        run: |
+          $checkInterval  = 300
+          $maxRuntime     = 5 * 3600 + 50 * 60
+          $elapsed        = 0
+          
+          Write-Host "Keep-alive iniciado..."
+          while ($elapsed -lt $maxRuntime) {
+            $process = Get-Process -Name "AnyDesk" -ErrorAction SilentlyContinue
+            if (-not $process) {
+              & "C:\ProgramData\chocolatey\lib\anydesk.portable\tools\AnyDesk.exe" --start
+              Start-Sleep -Seconds 10
+            }
+            Start-Sleep -Seconds $checkInterval
+            $elapsed += $checkInterval
+          }
+
+      - name: Final Clean Up
+        if: always()
+        run: |
+          Write-Host "Cleanup concluído."
+          
