@@ -2,11 +2,10 @@ import sys
 import os
 import subprocess
 import time
-from supabase import create_client, Client
+import requests
 
 SUPABASE_URL = "https://ubcuaqrzqarzrxiptpjf.supabase.co"
-SUPABASE_KEY = "Sb_publishable_Dc3ZdwlRvxufsV2RHV1dcw_b9sD8UWh"
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+SUPABASE_KEY = "sb_secret_DQDU_q_Gx9lq1WnvTuHd8A_d4lpnvf8"
 
 if len(sys.argv) < 3:
     print("❌ Parâmetros operacionais ausentes (ID Usuário e Sessão requeridos).")
@@ -17,21 +16,31 @@ id_sessao = sys.argv[2]
 
 print(f"🔍 Sincronizando parâmetros para a sessão isolada: {id_sessao}")
 
+headers = {
+    "apikey": SUPABASE_KEY,
+    "Authorization": f"Bearer {SUPABASE_KEY}",
+    "Content-Type": "application/json"
+}
+
 try:
-    response = supabase.table("chaves_anydesk").select("senha").eq("id_sessao", id_sessao).execute()
+    url_select = f"{SUPABASE_URL}/rest/v1/chaves_anydesk?id_sessao=eq.{id_sessao}&select=senha"
+    response = requests.get(url_select, headers=headers)
     
-    if not response.data:
-        print(f"❌ Falha de integridade: Registro {id_sessao} inexistente no banco.")
+    if response.status_code != 200 or not response.json():
+        print(f"❌ Falha de integridade: Registro {id_sessao} inexistente no banco. Status: {response.status_code}")
         sys.exit(1)
         
-    senha_recuperada = response.data[0]["senha"]
+    dados_banco = response.json()
+    senha_recuperada = dados_banco[0]["senha"]
     print("✅ Credenciais validadas e capturadas.")
 
     subprocess.run(f'powershell -Command "Set-LocalUser -Name \'runneradmin\' -Password (ConvertTo-SecureString -AsPlainText \'{senha_recuperada}\' -Force)"', shell=True)
 
     anydesk_path = r"C:\ProgramData\chocolatey\lib\anydesk.portable\tools\AnyDesk.exe"
-    subprocess.run(f'echo {senha_recuperada} | "{anydesk_path}" --set-password _full_access', shell=True)
+    if not os.path.exists(anydesk_path):
+        anydesk_path = r"C:\Program Files (x86)\AnyDesk\AnyDesk.exe"
 
+    subprocess.run(f'echo {senha_recuperada} | "{anydesk_path}" --set-password _full_access', shell=True)
     subprocess.run(f'"{anydesk_path}" --start', shell=True)
 
     id_anydesk = ""
@@ -40,6 +49,7 @@ try:
         time.sleep(5)
         resultado = subprocess.run(f'"{anydesk_path}" --get-id', capture_output=True, text=True, shell=True)
         id_anydesk = resultado.stdout.strip()
+        id_anydesk = "".join(filter(str.isdigit, id_anydesk))
         tentativas += 1
 
     if not id_anydesk or id_anydesk == "0":
@@ -47,8 +57,17 @@ try:
         sys.exit(1)
 
     print(f"🎯 AnyDesk ID determinado com êxito: {id_anydesk}")
-    supabase.table("chaves_anydesk").update({"anydesk_id": id_anydesk}).eq("id_sessao", id_sessao).execute()
-    print(f"✨ Ciclo operacional da máquina {id_sessao} ativado com êxito.")
+    
+    url_update = f"{SUPABASE_URL}/rest/v1/chaves_anydesk?id_sessao=eq.{id_sessao}"
+    payload = {"anydesk_id": id_anydesk}
+    
+    update_response = requests.patch(url_update, headers=headers, json=payload)
+    
+    if update_response.status_code in [200, 201, 204]:
+        print(f"✨ Ciclo operacional da máquina {id_sessao} ativado com êxito no banco de dados.")
+    else:
+        print(f"❌ Falha ao salvar no banco: Status {update_response.status_code} - {update_response.text}")
+        sys.exit(1)
 
 except Exception as e:
     print(f"💥 Falha na execução da rotina interna da VM: {e}")
