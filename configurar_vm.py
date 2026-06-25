@@ -22,18 +22,42 @@ headers = {
 }
 
 try:
-    print("Iniciando instalacao local do AnyDesk...")
+    print("Determinando o caminho do AnyDesk...")
     anydesk_path = r"C:\ProgramData\chocolatey\lib\anydesk.portable\tools\AnyDesk.exe"
     if not os.path.exists(anydesk_path):
         anydesk_path = r"C:\Program Files (x86)\AnyDesk\AnyDesk.exe"
 
-    subprocess.run(f'"{anydesk_path}" --start', shell=True)
-    time.sleep(5)
+    print("Forcando a inicializacao assincrona do AnyDesk...")
+    subprocess.Popen(f'start "" "{anydesk_path}" --start', shell=True)
+    time.sleep(10)
 
-    print("Definindo senha de acesso no AnyDesk...")
+    print("Configurando credenciais de acesso...")
     subprocess.run(f'echo SenhaVirtual123 | "{anydesk_path}" --set-password _full_access', shell=True)
 
     id_anydesk = ""
+    tentativas = 0
+    print("Capturando ID do AnyDesk através do loop seguro...")
+    
+    while (not id_anydesk or id_anydesk == "0") and tentativas < 10:
+        time.sleep(5)
+        resultado = subprocess.run(f'"{anydesk_path}" --get-id', capture_output=True, text=True, shell=True)
+        saida_limpa = resultado.stdout.strip() if resultado.stdout else ""
+        id_anydesk = "".join(filter(str.isdigit, saida_limpa))
+        tentativas += 1
+
+    if not id_anydesk:
+        id_anydesk = "ERRO_ID"
+
+    print(f"AnyDesk ID final determinado: {id_anydesk}")
+    
+    url_update = f"{SUPABASE_URL}/rest/v1/chaves_anydesk?id_sessao=eq.{id_sessao}"
+    payload = {"anydesk_id": id_anydesk}
+    
+    update_response = requests.patch(url_update, headers=headers, json=payload)
+    print(f"Sincronizacao concluida. Código de resposta do banco: {update_response.status_code}")
+
+except Exception as e:
+    print(f"Falha na execucao interna do script: {e}")
     tentativas = 0
     while (not id_anydesk or id_anydesk == "0") and tentativas < 12:
         time.sleep(5)
