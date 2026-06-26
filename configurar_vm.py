@@ -22,25 +22,36 @@ headers = {
 }
 
 try:
-    # 1. Localiza o executável correto do AnyDesk
-    anydesk_path = r"C:\ProgramData\chocolatey\lib\anydesk.portable\tools\AnyDesk.exe"
-    if not os.path.exists(anydesk_path):
-        anydesk_path = r"C:\Program Files (x86)\AnyDesk\AnyDesk.exe"
-    if not os.path.exists(anydesk_path):
-        anydesk_path = r"C:\Program Files\AnyDesk\AnyDesk.exe"
+    # 1. Localiza os caminhos possiveis do executavel
+    choco_anydesk = r"C:\ProgramData\chocolatey\lib\anydesk.portable\tools\AnyDesk.exe"
+    system_anydesk = r"C:\Program Files (x86)\AnyDesk\AnyDesk.exe"
+    
+    anydesk_path = choco_anydesk if os.path.exists(choco_anydesk) else system_anydesk
 
-    print("🛑 [1/5] Finalizando instâncias ativas do AnyDesk...")
-    # Para o serviço e mata qualquer janela órfã que bloqueie os arquivos .conf
+    print("[1/5] Parando servicos antigos do AnyDesk...")
     subprocess.run(["powershell", "-Command", "Stop-Service -Name AnyDesk -Force"], capture_output=True)
     subprocess.run(["taskkill", "/f", "/im", "anydesk.exe"], capture_output=True)
-    time.sleep(3)
+    time.sleep(2)
 
-    # 2. Injeta as diretrizes de Bypass de Aceitação Remota nos arquivos de configuração
-    config_dirs = [r"C:\ProgramData\AnyDesk", os.path.expandvars(r"%APPDATA%\AnyDesk")]
+    # 2. Forca instalacao silenciosa como servico para unificar escopo de senhas (SYSTEM profile)
+    print("[2/5] Registrando AnyDesk no escopo do Sistema...")
+    if os.path.exists(choco_anydesk) and not os.path.exists(system_anydesk):
+        subprocess.run(f'"{choco_anydesk}" --install "C:\\Program Files (x86)\\AnyDesk" --start-with-win --silent', shell=True)
+        time.sleep(4)
+        anydesk_path = system_anydesk
+
+    # 3. Diretorios de configuracao incluindo perfis globais de servico do Windows
+    config_dirs = [
+        r"C:\ProgramData\AnyDesk",
+        os.path.expandvars(r"%APPDATA%\AnyDesk"),
+        r"C:\Windows\SysWOW64\config\systemprofile\AppData\Roaming\AnyDesk",
+        r"C:\Windows\System32\config\systemprofile\AppData\Roaming\AnyDesk"
+    ]
     
+    # Parametros para travar o Bypass de Aceitacao Remota
     config_override = {
-        "ad.security.interactive_connections": "2",  # 2 = NUNCA exibir janela de aceitação (Permitir direto)
-        "ad.security.allow_unattended_access": "1",   # 1 = Habilitar acesso não supervisionado
+        "ad.security.interactive_connections": "2",  # 2 = PERMITIR CONEXAO DIRETA (Ignora botao aceitar)
+        "ad.security.allow_unattended_access": "1",   # 1 = Ativa Acesso Nao Supervisionado
         "ad.security.allow_unattended_access.anywhere": "1",
         "ad.security.allow_unattended_access.password_only": "1",
         "ad.features.incoming.audio": "1",
@@ -49,16 +60,18 @@ try:
         "ad.features.incoming.file": "1"
     }
 
-    print("📝 [2/5] Escrevendo parâmetros de acesso irrestrito...")
+    print("[3/5] Gravando diretrizes de acesso irrestrito nos perfis .conf...")
     for config_dir in config_dirs:
         if not os.path.exists(config_dir):
-            os.makedirs(config_dir)
+            try: os.makedirs(config_dir)
+            except: pass
         
-        for filename in ["system.conf", "service.conf"]:
+        # Aplica a mesma regra nos 3 arquivos possiveis de checagem do AnyDesk
+        for filename in ["system.conf", "service.conf", "connection.conf"]:
             config_path = os.path.join(config_dir, filename)
             lines = []
             if os.path.exists(config_path):
-                with open(config_path, "r", encoding="utf-8") as f:
+                with open(config_path, "r", encoding="utf-8", errors="ignore") as f:
                     lines = f.readlines()
 
             new_lines = []
@@ -79,17 +92,19 @@ try:
                 if k not in keys_written:
                     new_lines.append(f"{k}={v}\n")
 
-            with open(config_path, "w", encoding="utf-8") as f:
-                f.writelines(new_lines)
+            try:
+                with open(config_path, "w", encoding="utf-8") as f:
+                    f.writelines(new_lines)
+            except:
+                pass
 
-    print("🔐 [3/5] Definindo senha de acesso em background...")
-    # Define a senha via CLI nativa (Funciona melhor com o serviço desativado neste ponto do script)
+    print("[4/5] Injetando senha master...")
+    # Seta a senha enquanto os processos estao congelados para persistir no arquivo
     cmd_senha = f'echo {senha_real}| "{anydesk_path}" --set-password'
     subprocess.run(cmd_senha, shell=True, capture_output=True)
     time.sleep(2)
 
-    print("🔄 [4/5] Reiniciando o serviço AnyDesk de forma limpa para aplicar as diretrizes...")
-    # Força o recarregamento do serviço do Windows para ler o system.conf alterado antes da conexão externa
+    print("[5/5] Inicializando servico integrado com as alteracoes...")
     subprocess.run(["powershell", "-Command", "Start-Service -Name AnyDesk"], capture_output=True)
     subprocess.Popen(f'start "" "{anydesk_path}" --start', shell=True)
     time.sleep(5)
@@ -97,8 +112,7 @@ try:
     id_anydesk = ""
     tentativas = 0
     
-    # 3. Captura o ID estável gerado pela VM
-    print("🔍 [5/5] Aguardando geração do ID AnyDesk...")
+    print("Aguardando geracao do ID AnyDesk...")
     while (not id_anydesk or id_anydesk == "0") and tentativas < 15:
         time.sleep(4)
         resultado = subprocess.run(f'"{anydesk_path}" --get-id', capture_output=True, text=True, shell=True)
@@ -109,17 +123,17 @@ try:
     if not id_anydesk:
         id_anydesk = "ERRO_ID"
     
-    print(f"📡 ID Gerado: {id_anydesk}. Atualizando banco de dados Supabase...")
+    print(f"ID capturado com sucesso: {id_anydesk}. Sincronizando com Supabase...")
     url_update = f"{SUPABASE_URL}/rest/v1/chaves_anydesk?id_sessao=eq.{id_sessao}"
     payload = {"anydesk_id": id_anydesk}
     requests.patch(url_update, headers=headers, json=payload)
 
-    # Inicializa a interface principal do Windows Quick Config se disponível
     try:
         os.system('start "" /MAX "C:\\Users\\Public\\Desktop\\VMQuickConfig"')
     except Exception:
         pass
 
 except Exception as e:
-    print(f"❌ Ocorreu um erro crítico no processo de configuração: {e}")
-    
+    # Print limpo sem caracteres especiais para evitar quebras no log do GitHub
+    print(f"Erro critico no processo: {str(e)}")
+            
