@@ -62,17 +62,17 @@ try:
     while True:
         try:
             pag.click(147, 489)
-            time.sleep(1)
+            time.sleep(0.5)
             pag.click(156, 552)
-            time.sleep(1)
+            time.sleep(0.5)
             pag.click(587, 14)
-            time.sleep(1)
+            time.sleep(0.5)
             pag.click(916, 17)
-            time.sleep(1)
+            time.sleep(0.5)
             pag.click(897, 64)
-            time.sleep(5)
+            time.sleep(2)
         except Exception:
-            time.sleep(5)
+            time.sleep(2)
 
 except Exception:
     pass
