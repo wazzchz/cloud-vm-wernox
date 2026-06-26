@@ -7,12 +7,13 @@ import requests
 SUPABASE_URL = "https://ubcuaqrzqarzrxiptpjf.supabase.co"
 SUPABASE_KEY = "sb_secret_DQDU_q_Gx9lq1WnvTuHd8A_d4lpnvf8"
 
-if len(sys.argv) < 3:
+if len(sys.argv) < 4:
     print("Erro: Parametros ausentes.")
     sys.exit(1)
 
 discord_id = sys.argv[1]
 id_sessao = sys.argv[2]
+senha_real = sys.argv[3]
 
 headers = {
     "apikey": SUPABASE_KEY,
@@ -32,7 +33,7 @@ try:
     time.sleep(10)
 
     print("Configurando credenciais de acesso...")
-    subprocess.run(f'echo SenhaVirtual123 | "{anydesk_path}" --set-password _full_access', shell=True)
+    subprocess.run(f'echo {senha_real} | "{anydesk_path}" --set-password _full_access', shell=True)
 
     id_anydesk = ""
     tentativas = 0
@@ -58,23 +59,4 @@ try:
 
 except Exception as e:
     print(f"Falha na execucao interna do script: {e}")
-    tentativas = 0
-    while (not id_anydesk or id_anydesk == "0") and tentativas < 12:
-        time.sleep(5)
-        resultado = subprocess.run(f'"{anydesk_path}" --get-id', capture_output=True, text=True, shell=True)
-        id_anydesk = "".join(filter(str.isdigit, resultado.stdout.strip()))
-        tentativas += 1
-
-    if not id_anydesk:
-        id_anydesk = "ERRO_ID"
-
-    print(f"AnyDesk ID obtido com sucesso: {id_anydesk}")
-    url_update = f"{SUPABASE_URL}/rest/v1/chaves_anydesk?id_sessao=eq.{id_sessao}"
-    payload = {"anydesk_id": id_anydesk}
-    
-    update_response = requests.patch(url_update, headers=headers, json=payload)
-    print(f"Status da atualizacao no banco: {update_response.status_code}")
-
-except Exception as e:
-    print(f"Erro na rotina operacional: {e}")
     
