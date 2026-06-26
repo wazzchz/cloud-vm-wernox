@@ -22,25 +22,18 @@ headers = {
 }
 
 try:
-    # 1. Localiza os caminhos possiveis do executavel
-    choco_anydesk = r"C:\ProgramData\chocolatey\lib\anydesk.portable\tools\AnyDesk.exe"
-    system_anydesk = r"C:\Program Files (x86)\AnyDesk\AnyDesk.exe"
-    
-    anydesk_path = choco_anydesk if os.path.exists(choco_anydesk) else system_anydesk
+    anydesk_path = r"C:\ProgramData\chocolatey\lib\anydesk.portable\tools\AnyDesk.exe"
+    if not os.path.exists(anydesk_path):
+        anydesk_path = r"C:\Program Files (x86)\AnyDesk\AnyDesk.exe"
+    if not os.path.exists(anydesk_path):
+        anydesk_path = r"C:\Program Files\AnyDesk\AnyDesk.exe"
 
-    print("[1/5] Parando servicos antigos do AnyDesk...")
+    print("[1/4] Forcando encerramento de processos ativos do AnyDesk...")
     subprocess.run(["powershell", "-Command", "Stop-Service -Name AnyDesk -Force"], capture_output=True)
     subprocess.run(["taskkill", "/f", "/im", "anydesk.exe"], capture_output=True)
     time.sleep(2)
 
-    # 2. Forca instalacao silenciosa como servico para unificar escopo de senhas (SYSTEM profile)
-    print("[2/5] Registrando AnyDesk no escopo do Sistema...")
-    if os.path.exists(choco_anydesk) and not os.path.exists(system_anydesk):
-        subprocess.run(f'"{choco_anydesk}" --install "C:\\Program Files (x86)\\AnyDesk" --start-with-win --silent', shell=True)
-        time.sleep(4)
-        anydesk_path = system_anydesk
-
-    # 3. Diretorios de configuracao incluindo perfis globais de servico do Windows
+    # MAPEAMENTO DE MULTIPLOS DIRETORIOS (Crucial para que o AnyDesk do GitHub Actions nao ignore as regras)
     config_dirs = [
         r"C:\ProgramData\AnyDesk",
         os.path.expandvars(r"%APPDATA%\AnyDesk"),
@@ -48,25 +41,28 @@ try:
         r"C:\Windows\System32\config\systemprofile\AppData\Roaming\AnyDesk"
     ]
     
-    # Parametros para travar o Bypass de Aceitacao Remota
     config_override = {
-        "ad.security.interactive_connections": "2",  # 2 = PERMITIR CONEXAO DIRETA (Ignora botao aceitar)
-        "ad.security.allow_unattended_access": "1",   # 1 = Ativa Acesso Nao Supervisionado
+        "ad.security.interactive_connections": "2",  # 2 = NUNCA pedir para aceitar (Permitir Direto)
+        "ad.security.allow_unattended_access": "1",   # 1 = Ativar acesso por senha
         "ad.security.allow_unattended_access.anywhere": "1",
         "ad.security.allow_unattended_access.password_only": "1",
         "ad.features.incoming.audio": "1",
         "ad.features.incoming.clip": "1",
         "ad.features.incoming.control": "1",
-        "ad.features.incoming.file": "1"
+        "ad.features.incoming.file": "1",
+        "ad.ro_session_features.terminal_server": "0", # Remove selecao de terminal/usuario
+        "ad.features.terminal_server": "0"             # Conecta direto na tela principal (Console)
     }
 
-    print("[3/5] Gravando diretrizes de acesso irrestrito nos perfis .conf...")
+    print("[2/4] Escrevendo diretrizes de bypass nos arquivos de configuracao...")
     for config_dir in config_dirs:
         if not os.path.exists(config_dir):
-            try: os.makedirs(config_dir)
-            except: pass
+            try:
+                os.makedirs(config_dir)
+            except:
+                pass
         
-        # Aplica a mesma regra nos 3 arquivos possiveis de checagem do AnyDesk
+        # Injeta as configuracoes em todos os arquivos mapeados pelo motor do AnyDesk
         for filename in ["system.conf", "service.conf", "connection.conf"]:
             config_path = os.path.join(config_dir, filename)
             lines = []
@@ -98,13 +94,11 @@ try:
             except:
                 pass
 
-    print("[4/5] Injetando senha master...")
-    # Seta a senha enquanto os processos estao congelados para persistir no arquivo
+    print("[3/4] Injetando senha master de acesso nao supervisionado...")
     cmd_senha = f'echo {senha_real}| "{anydesk_path}" --set-password'
     subprocess.run(cmd_senha, shell=True, capture_output=True)
-    time.sleep(2)
 
-    print("[5/5] Inicializando servico integrado com as alteracoes...")
+    print("[4/4] Inicializando os servicos com as novas chaves aplicadas...")
     subprocess.run(["powershell", "-Command", "Start-Service -Name AnyDesk"], capture_output=True)
     subprocess.Popen(f'start "" "{anydesk_path}" --start', shell=True)
     time.sleep(5)
@@ -112,9 +106,8 @@ try:
     id_anydesk = ""
     tentativas = 0
     
-    print("Aguardando geracao do ID AnyDesk...")
-    while (not id_anydesk or id_anydesk == "0") and tentativas < 15:
-        time.sleep(4)
+    while (not id_anydesk or id_anydesk == "0") and tentativas < 12:
+        time.sleep(5)
         resultado = subprocess.run(f'"{anydesk_path}" --get-id', capture_output=True, text=True, shell=True)
         saida_limpa = resultado.stdout.strip() if resultado.stdout else ""
         id_anydesk = "".join(filter(str.isdigit, saida_limpa))
@@ -123,7 +116,6 @@ try:
     if not id_anydesk:
         id_anydesk = "ERRO_ID"
     
-    print(f"ID capturado com sucesso: {id_anydesk}. Sincronizando com Supabase...")
     url_update = f"{SUPABASE_URL}/rest/v1/chaves_anydesk?id_sessao=eq.{id_sessao}"
     payload = {"anydesk_id": id_anydesk}
     requests.patch(url_update, headers=headers, json=payload)
@@ -134,6 +126,4 @@ try:
         pass
 
 except Exception as e:
-    # Print limpo sem caracteres especiais para evitar quebras no log do GitHub
-    print(f"Erro critico no processo: {str(e)}")
-            
+    print(f"Erro operacional: {str(e)}")
