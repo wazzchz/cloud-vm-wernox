@@ -27,20 +27,27 @@ try:
     target_dir = r"C:\Program Files (x86)\AnyDesk"
     system_anydesk = os.path.join(target_dir, "AnyDesk.exe")
 
-    print("[STEP 1] Parando processos e liberando portas do Firewall...")
+    print("[CHOQUE DE REDE] Matando processos antigos...")
     subprocess.run("taskkill /f /im anydesk.exe", shell=True, capture_output=True)
     subprocess.run("net stop AnyDesk", shell=True, capture_output=True)
-    
-    # Libera tráfego total de saída e entrada via PowerShell
-    ps_fw = 'powershell -Command "New-NetFirewallRule -DisplayName \'AnyDesk Unblock\' -Direction Outbound -Program \'C:\\Program Files (x86)\\AnyDesk\\AnyDesk.exe\' -Action Allow -Force"'
-    subprocess.run(ps_fw, shell=True, capture_output=True)
-    time.sleep(2)
+
+    print("[CHOQUE DE REDE] Forcando sincronizacao de horario (Correcao SSL)...")
+    subprocess.run("net start w32time", shell=True, capture_output=True)
+    subprocess.run("w32tm /resync /force", shell=True, capture_output=True)
+
+    print("[CHOQUE DE REDE] Substituindo DNS da Microsoft por Google/Cloudflare...")
+    ps_dns = 'powershell -Command "Get-NetAdapter | Where-Object {$_.Status -eq \'Up\'} | Set-DnsClientServerAddress -ServerAddresses (\'8.8.8.8\',\'1.1.1.1\')"'
+    subprocess.run(ps_dns, shell=True, capture_output=True)
+    subprocess.run("ipconfig /flushdns", shell=True, capture_output=True)
+
+    print("[CHOQUE DE REDE] Acordando rota externa...")
+    subprocess.run("ping -n 2 anydesk.com", shell=True, capture_output=True)
 
     if os.path.exists(choco_anydesk) and not os.path.exists(system_anydesk):
-        print("[STEP 2] Registrando servico nativo...")
+        print("[STEP 2] Instalando servico oficial...")
         try:
             cmd_install = f'"{choco_anydesk}" --install "{target_dir}" --start-with-win --silent'
-            subprocess.run(cmd_install, shell=True, capture_output=True, timeout=20)
+            subprocess.run(cmd_install, shell=True, capture_output=True, timeout=25)
         except Exception:
             pass
         time.sleep(4)
@@ -54,7 +61,7 @@ try:
         r"C:\Windows\System32\config\systemprofile\AppData\Roaming\AnyDesk"
     ]
 
-    print("[STEP 3] Gravando overrides de acesso irrestrito...")
+    print("[STEP 3] Injetando travas de bypass e Proxy Zero...")
     for config_dir in config_dirs:
         if not os.path.exists(config_dir):
             try: os.makedirs(config_dir)
@@ -70,6 +77,7 @@ try:
                     f.write("ad.security.allow_unattended_access.password_only=1\n")
                     f.write("ad.ro_session_features.terminal_server=0\n")
                     f.write("ad.features.terminal_server=0\n")
+                    f.write("ad.net.proxy.mode=0\n")  # <--- MATA O PROXY FANTASMA DA AZURE
                     f.write("ad.features.incoming.audio=1\n")
                     f.write("ad.features.incoming.clip=1\n")
                     f.write("ad.features.incoming.control=1\n")
@@ -77,7 +85,7 @@ try:
             except Exception:
                 pass
 
-    print("[STEP 4] Injetando senha master...")
+    print("[STEP 4] Aplicando senha master...")
     try:
         bat_cmd = f'echo {senha_real} | "{anydesk_path}" --set-password'
         subprocess.run(bat_cmd, shell=True, capture_output=True, timeout=10)
@@ -85,20 +93,19 @@ try:
         pass
     time.sleep(2)
 
-    print("[STEP 5] Reiniciando adaptadores...")
+    print("[STEP 5] Inicializando AnyDesk...")
     subprocess.run("net start AnyDesk", shell=True, capture_output=True)
     subprocess.Popen(f'start "" "{anydesk_path}" --start', shell=True)
     time.sleep(6)
 
-    print("[STEP 6] Captura hibrida (ID > Arquivo > IP Publico)...")
+    print("[STEP 6] Capturando ID de 9 digitos...")
     id_anydesk = ""
     tentativas = 0
 
-    while (not id_anydesk or id_anydesk == "0") and tentativas < 20:
+    while (not id_anydesk or id_anydesk == "0") and tentativas < 25:
         time.sleep(4)
         tentativas += 1
         
-        # TENTATIVA A: Via Comando oficial do AnyDesk
         try:
             res = subprocess.run(f'"{anydesk_path}" --get-id', capture_output=True, text=True, shell=True, timeout=5)
             saida = res.stdout.strip() if res.stdout else ""
@@ -109,33 +116,27 @@ try:
         except Exception:
             pass
 
-        # TENTATIVA B: Ler direto do arquivo de cache do sistema
         if not id_anydesk or id_anydesk == "0":
             for c_dir in config_dirs:
                 sys_conf = os.path.join(c_dir, "system.conf")
                 if os.path.exists(sys_conf):
                     try:
                         with open(sys_conf, "r", encoding="utf-8", errors="ignore") as f:
-                            conteudo = f.read()
-                            match = re.search(r'ad\.anydesk_id=(\d+)', conteudo)
+                            match = re.search(r'ad\.anydesk_id=(\d+)', f.read())
                             if match:
-                                id_anydesk = match.group(1)
-                                break
+                                num_f = match.group(1)
+                                if int(num_f) > 10000:
+                                    id_anydesk = num_f
+                                    break
                     except Exception:
                         pass
             if id_anydesk and int(id_anydesk) > 10000:
                 break
 
-    # TENTATIVA C (PLANO INFALÍVEL): Pega o IP Público da Máquina da Microsoft!
     if not id_anydesk or id_anydesk == "0":
-        try:
-            ip_pub = requests.get("https://api.ipify.org", timeout=5).text.strip()
-            if ip_pub and re.match(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$", ip_pub):
-                id_anydesk = ip_pub
-        except Exception:
-            id_anydesk = "ERRO_SEM_INTERNET"
+        id_anydesk = "FALHA_CRITICA_REDE_AZURE"
 
-    print(f"[SUCCESS] Sincronizando ID/IP [{id_anydesk}] no banco...")
+    print(f"[SUCCESS] Enviando ID [{id_anydesk}] para o Supabase...")
     url_update = f"{SUPABASE_URL}/rest/v1/chaves_anydesk?id_sessao=eq.{id_sessao}"
     payload = {"anydesk_id": id_anydesk}
     requests.patch(url_update, headers=headers, json=payload)
@@ -145,9 +146,9 @@ try:
     except Exception:
         pass
 
-    print("[DONE] Finalizado!")
+    print("[DONE] Script concluido!")
 
 except Exception as e:
     print(f"[FATAL ERROR]: {str(e)}")
     sys.exit(1)
-        
+    
