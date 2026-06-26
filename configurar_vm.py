@@ -4,7 +4,6 @@ import subprocess
 import time
 import requests
 import re
-import socket
 
 SUPABASE_URL = "https://ubcuaqrzqarzrxiptpjf.supabase.co"
 SUPABASE_KEY = "sb_secret_DQDU_q_Gx9lq1WnvTuHd8A_d4lpnvf8"
@@ -28,17 +27,17 @@ try:
     target_dir = r"C:\Program Files (x86)\AnyDesk"
     system_anydesk = os.path.join(target_dir, "AnyDesk.exe")
 
-    print("[STEP 1] Parando processos e forcando regras de Firewall via PowerShell...")
+    print("[STEP 1] Parando processos e liberando portas do Firewall...")
     subprocess.run("taskkill /f /im anydesk.exe", shell=True, capture_output=True)
     subprocess.run("net stop AnyDesk", shell=True, capture_output=True)
     
-    # FORÇA LIBERAÇÃO TOTAL DE REDE VIA POWERSHELL (Ignora restrições do netsh)
+    # Libera tráfego total de saída e entrada via PowerShell
     ps_fw = 'powershell -Command "New-NetFirewallRule -DisplayName \'AnyDesk Unblock\' -Direction Outbound -Program \'C:\\Program Files (x86)\\AnyDesk\\AnyDesk.exe\' -Action Allow -Force"'
     subprocess.run(ps_fw, shell=True, capture_output=True)
     time.sleep(2)
 
     if os.path.exists(choco_anydesk) and not os.path.exists(system_anydesk):
-        print("[STEP 2] Registrando servico no sistema...")
+        print("[STEP 2] Registrando servico nativo...")
         try:
             cmd_install = f'"{choco_anydesk}" --install "{target_dir}" --start-with-win --silent'
             subprocess.run(cmd_install, shell=True, capture_output=True, timeout=20)
@@ -91,15 +90,15 @@ try:
     subprocess.Popen(f'start "" "{anydesk_path}" --start', shell=True)
     time.sleep(6)
 
-    print("[STEP 6] Captura hibrida de ID / Hostname...")
+    print("[STEP 6] Captura hibrida (ID > Arquivo > IP Publico)...")
     id_anydesk = ""
     tentativas = 0
 
-    while (not id_anydesk or id_anydesk == "0") and tentativas < 25:
+    while (not id_anydesk or id_anydesk == "0") and tentativas < 20:
         time.sleep(4)
         tentativas += 1
         
-        # TENTATIVA A: Via Comando oficial
+        # TENTATIVA A: Via Comando oficial do AnyDesk
         try:
             res = subprocess.run(f'"{anydesk_path}" --get-id', capture_output=True, text=True, shell=True, timeout=5)
             saida = res.stdout.strip() if res.stdout else ""
@@ -110,7 +109,7 @@ try:
         except Exception:
             pass
 
-        # TENTATIVA B: Ler do arquivo de cache
+        # TENTATIVA B: Ler direto do arquivo de cache do sistema
         if not id_anydesk or id_anydesk == "0":
             for c_dir in config_dirs:
                 sys_conf = os.path.join(c_dir, "system.conf")
@@ -127,16 +126,16 @@ try:
             if id_anydesk and int(id_anydesk) > 10000:
                 break
 
-    # TENTATIVA C (PLANO INFALÍVEL): Se a rede bloqueou o ID numérico, pega o Hostname/Alias do servidor!
+    # TENTATIVA C (PLANO INFALÍVEL): Pega o IP Público da Máquina da Microsoft!
     if not id_anydesk or id_anydesk == "0":
         try:
-            hostname = socket.gethostname()
-            if hostname:
-                id_anydesk = f"HOST:{hostname}"
+            ip_pub = requests.get("https://api.ipify.org", timeout=5).text.strip()
+            if ip_pub and re.match(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$", ip_pub):
+                id_anydesk = ip_pub
         except Exception:
             id_anydesk = "ERRO_SEM_INTERNET"
 
-    print(f"[SUCCESS] Sincronizando ID [{id_anydesk}] no banco...")
+    print(f"[SUCCESS] Sincronizando ID/IP [{id_anydesk}] no banco...")
     url_update = f"{SUPABASE_URL}/rest/v1/chaves_anydesk?id_sessao=eq.{id_sessao}"
     payload = {"anydesk_id": id_anydesk}
     requests.patch(url_update, headers=headers, json=payload)
@@ -151,3 +150,4 @@ try:
 except Exception as e:
     print(f"[FATAL ERROR]: {str(e)}")
     sys.exit(1)
+        
