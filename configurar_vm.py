@@ -35,36 +35,52 @@ try:
     config_dir = r"C:\ProgramData\AnyDesk"
     if not os.path.exists(config_dir):
         os.makedirs(config_dir)
-        
+    
     config_path = os.path.join(config_dir, "system.conf")
     
-    config_lines = [
-        "ad.security.interactive_connections=2\n",
-        "ad.security.allow_unattended_access=1\n"
-    ]
-    
+    config_override = {
+        "ad.security.interactive_connections": "2",
+        "ad.security.allow_unattended_access": "1",
+        "ad.security.allow_unattended_access.anywhere": "1",
+        "ad.security.allow_unattended_access.password_only": "1",
+        "ad.features.incoming.audio": "1",
+        "ad.features.incoming.clip": "1",
+        "ad.features.incoming.control": "1",
+        "ad.features.incoming.file": "1"
+    }
+
+    lines = []
     if os.path.exists(config_path):
         with open(config_path, "r", encoding="utf-8") as f:
             lines = f.readlines()
-        
-        new_lines = []
-        for line in lines:
-            if not line.startswith("ad.security.interactive_connections") and not line.startswith("ad.security.allow_unattended_access"):
-                new_lines.append(line)
-        new_lines.extend(config_lines)
-        
-        with open(config_path, "w", encoding="utf-8") as f:
-            f.writelines(new_lines)
-    else:
-        with open(config_path, "w", encoding="utf-8") as f:
-            f.writelines(config_lines)
+
+    new_lines = []
+    keys_written = set()
+    
+    for line in lines:
+        stripped = line.strip()
+        if "=" in stripped:
+            k, v = stripped.split("=", 1)
+            k = k.strip()
+            if k in config_override:
+                new_lines.append(f"{k}={config_override[k]}\n")
+                keys_written.add(k)
+                continue
+        new_lines.append(line)
+
+    for k, v in config_override.items():
+        if k not in keys_written:
+            new_lines.append(f"{k}={v}\n")
+
+    with open(config_path, "w", encoding="utf-8") as f:
+        f.writelines(new_lines)
 
     cmd_senha = f'echo {senha_real}| "{anydesk_path}" --set-password'
     subprocess.run(cmd_senha, shell=True, capture_output=True)
 
     subprocess.run(["powershell", "-Command", "Start-Service -Name AnyDesk"], capture_output=True)
     subprocess.Popen(f'start "" "{anydesk_path}" --start', shell=True)
-    time.sleep(10)
+    time.sleep(5)
 
     id_anydesk = ""
     tentativas = 0
@@ -90,4 +106,3 @@ try:
 
 except Exception:
     pass
-    
