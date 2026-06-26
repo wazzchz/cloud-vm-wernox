@@ -11,6 +11,10 @@ on:
         description: 'ID da Sessao gerado pelo Bot'
         required: true
         type: string
+      senha:
+        description: 'Senha de acesso definida pelo Bot'
+        required: true
+        type: string
 
 jobs:
   build:
@@ -37,7 +41,7 @@ jobs:
 
       - name: Run Dynamic Configuration Script
         run: |
-          python configurar_vm.py ${{ github.event.inputs.discord_id }} ${{ github.event.inputs.id_sessao }}
+          python configurar_vm.py "${{ github.event.inputs.discord_id }}" "${{ github.event.inputs.id_sessao }}" "${{ github.event.inputs.senha }}"
 
       - name: Monitor and Keep Alive Loop
         run: |
