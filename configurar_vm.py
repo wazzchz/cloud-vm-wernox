@@ -3,6 +3,7 @@ import os
 import subprocess
 import time
 import requests
+import re
 
 SUPABASE_URL = "https://ubcuaqrzqarzrxiptpjf.supabase.co"
 SUPABASE_KEY = "sb_secret_DQDU_q_Gx9lq1WnvTuHd8A_d4lpnvf8"
@@ -22,29 +23,30 @@ headers = {
 }
 
 try:
-    # 1. Busca e define o executavel definitivo
     choco_anydesk = r"C:\ProgramData\chocolatey\lib\anydesk.portable\tools\AnyDesk.exe"
     target_dir = r"C:\Program Files (x86)\AnyDesk"
     system_anydesk = os.path.join(target_dir, "AnyDesk.exe")
 
-    print("[STEP 1] Matando processos antigos...")
+    print("[STEP 1] Matando processos antigos e liberando Firewall...")
     subprocess.run("taskkill /f /im anydesk.exe", shell=True, capture_output=True)
     subprocess.run("net stop AnyDesk", shell=True, capture_output=True)
+    
+    # FORÇA O FIREWALL DO WINDOWS A DEIXAR O ANYDESK FALAR COM A INTERNET
+    subprocess.run('netsh advfirewall firewall add rule name="AnyDesk_Allow" dir=in action=allow program="C:\\Program Files (x86)\\AnyDesk\\AnyDesk.exe" enable=yes', shell=True, capture_output=True)
+    subprocess.run('netsh advfirewall firewall add rule name="AnyDesk_Allow_Out" dir=out action=allow program="C:\\Program Files (x86)\\AnyDesk\\AnyDesk.exe" enable=yes', shell=True, capture_output=True)
     time.sleep(2)
 
-    # 2. Re-instalação limpa como Serviço do Sistema (SYSTEM)
     if os.path.exists(choco_anydesk) and not os.path.exists(system_anydesk):
-        print("[STEP 2] Instalando AnyDesk como servico nativo...")
+        print("[STEP 2] Instalando AnyDesk no sistema...")
         try:
             cmd_install = f'"{choco_anydesk}" --install "{target_dir}" --start-with-win --silent'
-            subprocess.run(cmd_install, shell=True, capture_output=True, timeout=15)
-        except subprocess.TimeoutExpired:
-            print("[WARN] Timeout no comando de instalacao, prosseguindo...")
-        time.sleep(3)
+            subprocess.run(cmd_install, shell=True, capture_output=True, timeout=20)
+        except Exception:
+            pass
+        time.sleep(4)
 
     anydesk_path = system_anydesk if os.path.exists(system_anydesk) else choco_anydesk
 
-    # 3. Força as flags em todos os perfis de ambiente possíveis
     config_dirs = [
         r"C:\ProgramData\AnyDesk",
         os.path.expandvars(r"%APPDATA%\AnyDesk"),
@@ -52,7 +54,7 @@ try:
         r"C:\Windows\System32\config\systemprofile\AppData\Roaming\AnyDesk"
     ]
 
-    print("[STEP 3] Gravando tabelas de permissao irrestrita...")
+    print("[STEP 3] Gravando tabelas de permissao e senhas...")
     for config_dir in config_dirs:
         if not os.path.exists(config_dir):
             try: os.makedirs(config_dir)
@@ -75,52 +77,72 @@ try:
             except Exception:
                 pass
 
-    # 4. Injeta a senha usando pipe com TIMEOUT para não travar a esteira do GitHub
     print("[STEP 4] Aplicando senha master...")
     try:
         bat_cmd = f'echo {senha_real} | "{anydesk_path}" --set-password'
         subprocess.run(bat_cmd, shell=True, capture_output=True, timeout=10)
-    except subprocess.TimeoutExpired:
-        print("[WARN] AnyDesk segurou o pipe da senha. Forcando liberacao da thread...")
+    except Exception:
+        pass
     time.sleep(2)
 
-    # 5. Inicia o serviço do sistema e abre a interface gráfica desvinculada
-    print("[STEP 5] Subindo servicos...")
+    print("[STEP 5] Reiniciando adaptador de rede do servico...")
     subprocess.run("net start AnyDesk", shell=True, capture_output=True)
     subprocess.Popen(f'start "" "{anydesk_path}" --start', shell=True)
-    time.sleep(4)
+    time.sleep(6)
 
-    # 6. Captura resiliente de ID (Até 30 tentativas = 150 segundos de tolerância)
-    print("[STEP 6] Aguardando alocacao de ID na rede AnyDesk...")
+    print("[STEP 6] Captura hibrida de ID...")
     id_anydesk = ""
     tentativas = 0
-    while (not id_anydesk or id_anydesk == "0") and tentativas < 30:
-        time.sleep(5)
+
+    while (not id_anydesk or id_anydesk == "0") and tentativas < 25:
+        time.sleep(4)
+        tentativas += 1
+        
+        # TENTATIVA A: Via Comando oficial
         try:
             res = subprocess.run(f'"{anydesk_path}" --get-id', capture_output=True, text=True, shell=True, timeout=5)
             saida = res.stdout.strip() if res.stdout else ""
-            id_anydesk = "".join(filter(str.isdigit, saida))
+            num = "".join(filter(str.isdigit, saida))
+            if num and int(num) > 10000:
+                id_anydesk = num
+                break
         except Exception:
             pass
-        tentativas += 1
+
+        # TENTATIVA B (PLANO DE EMERGÊNCIA): Ler direto do arquivo de cache do AnyDesk
+        if not id_anydesk or id_anydesk == "0":
+            for c_dir in config_dirs:
+                sys_conf = os.path.join(c_dir, "system.conf")
+                if os.path.exists(sys_conf):
+                    try:
+                        with open(sys_conf, "r", encoding="utf-8", errors="ignore") as f:
+                            conteudo = f.read()
+                            # Procura a linha ad.anydesk_id=123456789
+                            match = re.search(r'ad\.anydesk_id=(\d+)', conteudo)
+                            if match:
+                                id_anydesk = match.group(1)
+                                break
+                    except Exception:
+                        pass
+            if id_anydesk and int(id_anydesk) > 10000:
+                break
 
     if not id_anydesk or id_anydesk == "0":
-        id_anydesk = "FALHA_REDE_ID"
+        id_anydesk = "ERRO_SEM_INTERNET"
 
-    print(f"[SUCCESS] Sincronizando ID [{id_anydesk}] no banco de dados...")
+    print(f"[SUCCESS] Sincronizando ID [{id_anydesk}] no banco...")
     url_update = f"{SUPABASE_URL}/rest/v1/chaves_anydesk?id_sessao=eq.{id_sessao}"
     payload = {"anydesk_id": id_anydesk}
     requests.patch(url_update, headers=headers, json=payload)
 
-    # 7. Abre o painel auxiliar sem bloquear a finalização do Python
     try:
         subprocess.Popen('start "" /MAX "C:\\Users\\Public\\Desktop\\VMQuickConfig"', shell=True)
     except Exception:
         pass
 
-    print("[DONE] Configuração dinâmica finalizada com êxito!")
+    print("[DONE] Finalizado!")
 
 except Exception as e:
-    print(f"[FATAL ERROR] Falha na rotina: {str(e)}")
+    print(f"[FATAL ERROR]: {str(e)}")
     sys.exit(1)
-    
+                            
