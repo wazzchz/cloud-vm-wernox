@@ -8,7 +8,6 @@ SUPABASE_URL = "https://ubcuaqrzqarzrxiptpjf.supabase.co"
 SUPABASE_KEY = "sb_secret_DQDU_q_Gx9lq1WnvTuHd8A_d4lpnvf8"
 
 if len(sys.argv) < 4:
-    print("Erro: Parametros ausentes.")
     sys.exit(1)
 
 discord_id = sys.argv[1]
@@ -23,21 +22,25 @@ headers = {
 }
 
 try:
-    print("Determinando o caminho do AnyDesk...")
     anydesk_path = r"C:\ProgramData\chocolatey\lib\anydesk.portable\tools\AnyDesk.exe"
     if not os.path.exists(anydesk_path):
         anydesk_path = r"C:\Program Files (x86)\AnyDesk\AnyDesk.exe"
+    if not os.path.exists(anydesk_path):
+        anydesk_path = r"C:\Program Files\AnyDesk\AnyDesk.exe"
 
-    print("Forcando a inicializacao assincrona do AnyDesk...")
+    subprocess.run(["powershell", "-Command", "Stop-Service -Name AnyDesk -Force"], capture_output=True)
+    subprocess.run(["taskkill", "/f", "/im", "anydesk.exe"], capture_output=True)
+    time.sleep(2)
+
+    cmd_senha = f'echo {senha_real}| "{anydesk_path}" --set-password'
+    subprocess.run(cmd_senha, shell=True, capture_output=True)
+
+    subprocess.run(["powershell", "-Command", "Start-Service -Name AnyDesk"], capture_output=True)
     subprocess.Popen(f'start "" "{anydesk_path}" --start', shell=True)
     time.sleep(10)
 
-    print("Configurando credenciais de acesso...")
-    subprocess.run(f'echo {senha_real} | "{anydesk_path}" --set-password _full_access', shell=True)
-
     id_anydesk = ""
     tentativas = 0
-    print("Capturando ID do AnyDesk através do loop seguro...")
     
     while (not id_anydesk or id_anydesk == "0") and tentativas < 10:
         time.sleep(5)
@@ -48,15 +51,11 @@ try:
 
     if not id_anydesk:
         id_anydesk = "ERRO_ID"
-
-    print(f"AnyDesk ID final determinado: {id_anydesk}")
     
     url_update = f"{SUPABASE_URL}/rest/v1/chaves_anydesk?id_sessao=eq.{id_sessao}"
     payload = {"anydesk_id": id_anydesk}
-    
-    update_response = requests.patch(url_update, headers=headers, json=payload)
-    print(f"Sincronizacao concluida. Código de resposta do banco: {update_response.status_code}")
+    requests.patch(url_update, headers=headers, json=payload)
 
-except Exception as e:
-    print(f"Falha na execucao interna do script: {e}")
+except Exception:
+    pass
     
