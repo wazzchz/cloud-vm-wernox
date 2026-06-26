@@ -4,6 +4,12 @@ import subprocess
 import time
 import requests
 
+try:
+    import pyautogui as pag
+except ImportError:
+    subprocess.run([sys.executable, "-m", "pip", "install", "pyautogui"], capture_output=True)
+    import pyautogui as pag
+
 SUPABASE_URL = "https://ubcuaqrzqarzrxiptpjf.supabase.co"
 SUPABASE_KEY = "sb_secret_DQDU_q_Gx9lq1WnvTuHd8A_d4lpnvf8"
 
@@ -28,14 +34,6 @@ try:
     if not os.path.exists(anydesk_path):
         anydesk_path = r"C:\Program Files\AnyDesk\AnyDesk.exe"
 
-    subprocess.run(["powershell", "-Command", "Stop-Service -Name AnyDesk -Force"], capture_output=True)
-    subprocess.run(["taskkill", "/f", "/im", "anydesk.exe"], capture_output=True)
-    time.sleep(2)
-
-    cmd_senha = f'echo {senha_real}| "{anydesk_path}" --set-password'
-    subprocess.run(cmd_senha, shell=True, capture_output=True)
-
-    subprocess.run(["powershell", "-Command", "Start-Service -Name AnyDesk"], capture_output=True)
     subprocess.Popen(f'start "" "{anydesk_path}" --start', shell=True)
     time.sleep(10)
 
@@ -55,6 +53,26 @@ try:
     url_update = f"{SUPABASE_URL}/rest/v1/chaves_anydesk?id_sessao=eq.{id_sessao}"
     payload = {"anydesk_id": id_anydesk}
     requests.patch(url_update, headers=headers, json=payload)
+
+    try:
+        os.system('start "" /MAX "C:\\Users\\Public\\Desktop\\VMQuickConfig"')
+    except Exception:
+        pass
+
+    while True:
+        try:
+            pag.click(147, 489)
+            time.sleep(1)
+            pag.click(156, 552)
+            time.sleep(1)
+            pag.click(587, 14)
+            time.sleep(1)
+            pag.click(916, 17)
+            time.sleep(1)
+            pag.click(897, 64)
+            time.sleep(5)
+        except Exception:
+            time.sleep(5)
 
 except Exception:
     pass
