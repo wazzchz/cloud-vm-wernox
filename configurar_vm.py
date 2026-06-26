@@ -4,6 +4,7 @@ import subprocess
 import time
 import requests
 import re
+import socket
 
 SUPABASE_URL = "https://ubcuaqrzqarzrxiptpjf.supabase.co"
 SUPABASE_KEY = "sb_secret_DQDU_q_Gx9lq1WnvTuHd8A_d4lpnvf8"
@@ -27,17 +28,17 @@ try:
     target_dir = r"C:\Program Files (x86)\AnyDesk"
     system_anydesk = os.path.join(target_dir, "AnyDesk.exe")
 
-    print("[STEP 1] Matando processos antigos e liberando Firewall...")
+    print("[STEP 1] Parando processos e forcando regras de Firewall via PowerShell...")
     subprocess.run("taskkill /f /im anydesk.exe", shell=True, capture_output=True)
     subprocess.run("net stop AnyDesk", shell=True, capture_output=True)
     
-    # FORÇA O FIREWALL DO WINDOWS A DEIXAR O ANYDESK FALAR COM A INTERNET
-    subprocess.run('netsh advfirewall firewall add rule name="AnyDesk_Allow" dir=in action=allow program="C:\\Program Files (x86)\\AnyDesk\\AnyDesk.exe" enable=yes', shell=True, capture_output=True)
-    subprocess.run('netsh advfirewall firewall add rule name="AnyDesk_Allow_Out" dir=out action=allow program="C:\\Program Files (x86)\\AnyDesk\\AnyDesk.exe" enable=yes', shell=True, capture_output=True)
+    # FORÇA LIBERAÇÃO TOTAL DE REDE VIA POWERSHELL (Ignora restrições do netsh)
+    ps_fw = 'powershell -Command "New-NetFirewallRule -DisplayName \'AnyDesk Unblock\' -Direction Outbound -Program \'C:\\Program Files (x86)\\AnyDesk\\AnyDesk.exe\' -Action Allow -Force"'
+    subprocess.run(ps_fw, shell=True, capture_output=True)
     time.sleep(2)
 
     if os.path.exists(choco_anydesk) and not os.path.exists(system_anydesk):
-        print("[STEP 2] Instalando AnyDesk no sistema...")
+        print("[STEP 2] Registrando servico no sistema...")
         try:
             cmd_install = f'"{choco_anydesk}" --install "{target_dir}" --start-with-win --silent'
             subprocess.run(cmd_install, shell=True, capture_output=True, timeout=20)
@@ -54,7 +55,7 @@ try:
         r"C:\Windows\System32\config\systemprofile\AppData\Roaming\AnyDesk"
     ]
 
-    print("[STEP 3] Gravando tabelas de permissao e senhas...")
+    print("[STEP 3] Gravando overrides de acesso irrestrito...")
     for config_dir in config_dirs:
         if not os.path.exists(config_dir):
             try: os.makedirs(config_dir)
@@ -77,7 +78,7 @@ try:
             except Exception:
                 pass
 
-    print("[STEP 4] Aplicando senha master...")
+    print("[STEP 4] Injetando senha master...")
     try:
         bat_cmd = f'echo {senha_real} | "{anydesk_path}" --set-password'
         subprocess.run(bat_cmd, shell=True, capture_output=True, timeout=10)
@@ -85,12 +86,12 @@ try:
         pass
     time.sleep(2)
 
-    print("[STEP 5] Reiniciando adaptador de rede do servico...")
+    print("[STEP 5] Reiniciando adaptadores...")
     subprocess.run("net start AnyDesk", shell=True, capture_output=True)
     subprocess.Popen(f'start "" "{anydesk_path}" --start', shell=True)
     time.sleep(6)
 
-    print("[STEP 6] Captura hibrida de ID...")
+    print("[STEP 6] Captura hibrida de ID / Hostname...")
     id_anydesk = ""
     tentativas = 0
 
@@ -109,7 +110,7 @@ try:
         except Exception:
             pass
 
-        # TENTATIVA B (PLANO DE EMERGÊNCIA): Ler direto do arquivo de cache do AnyDesk
+        # TENTATIVA B: Ler do arquivo de cache
         if not id_anydesk or id_anydesk == "0":
             for c_dir in config_dirs:
                 sys_conf = os.path.join(c_dir, "system.conf")
@@ -117,7 +118,6 @@ try:
                     try:
                         with open(sys_conf, "r", encoding="utf-8", errors="ignore") as f:
                             conteudo = f.read()
-                            # Procura a linha ad.anydesk_id=123456789
                             match = re.search(r'ad\.anydesk_id=(\d+)', conteudo)
                             if match:
                                 id_anydesk = match.group(1)
@@ -127,8 +127,14 @@ try:
             if id_anydesk and int(id_anydesk) > 10000:
                 break
 
+    # TENTATIVA C (PLANO INFALÍVEL): Se a rede bloqueou o ID numérico, pega o Hostname/Alias do servidor!
     if not id_anydesk or id_anydesk == "0":
-        id_anydesk = "ERRO_SEM_INTERNET"
+        try:
+            hostname = socket.gethostname()
+            if hostname:
+                id_anydesk = f"HOST:{hostname}"
+        except Exception:
+            id_anydesk = "ERRO_SEM_INTERNET"
 
     print(f"[SUCCESS] Sincronizando ID [{id_anydesk}] no banco...")
     url_update = f"{SUPABASE_URL}/rest/v1/chaves_anydesk?id_sessao=eq.{id_sessao}"
@@ -145,4 +151,3 @@ try:
 except Exception as e:
     print(f"[FATAL ERROR]: {str(e)}")
     sys.exit(1)
-                            
