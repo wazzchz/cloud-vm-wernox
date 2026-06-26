@@ -32,11 +32,7 @@ try:
     subprocess.run(["taskkill", "/f", "/im", "anydesk.exe"], capture_output=True)
     time.sleep(2)
 
-    config_dir = r"C:\ProgramData\AnyDesk"
-    if not os.path.exists(config_dir):
-        os.makedirs(config_dir)
-    
-    config_path = os.path.join(config_dir, "system.conf")
+    config_dirs = [r"C:\ProgramData\AnyDesk", os.path.expandvars(r"%APPDATA%\AnyDesk")]
     
     config_override = {
         "ad.security.interactive_connections": "2",
@@ -49,31 +45,37 @@ try:
         "ad.features.incoming.file": "1"
     }
 
-    lines = []
-    if os.path.exists(config_path):
-        with open(config_path, "r", encoding="utf-8") as f:
-            lines = f.readlines()
+    for config_dir in config_dirs:
+        if not os.path.exists(config_dir):
+            os.makedirs(config_dir)
+        
+        for filename in ["system.conf", "service.conf"]:
+            config_path = os.path.join(config_dir, filename)
+            lines = []
+            if os.path.exists(config_path):
+                with open(config_path, "r", encoding="utf-8") as f:
+                    lines = f.readlines()
 
-    new_lines = []
-    keys_written = set()
-    
-    for line in lines:
-        stripped = line.strip()
-        if "=" in stripped:
-            k, v = stripped.split("=", 1)
-            k = k.strip()
-            if k in config_override:
-                new_lines.append(f"{k}={config_override[k]}\n")
-                keys_written.add(k)
-                continue
-        new_lines.append(line)
+            new_lines = []
+            keys_written = set()
+            
+            for line in lines:
+                stripped = line.strip()
+                if "=" in stripped:
+                    k, v = stripped.split("=", 1)
+                    k = k.strip()
+                    if k in config_override:
+                        new_lines.append(f"{k}={config_override[k]}\n")
+                        keys_written.add(k)
+                        continue
+                new_lines.append(line)
 
-    for k, v in config_override.items():
-        if k not in keys_written:
-            new_lines.append(f"{k}={v}\n")
+            for k, v in config_override.items():
+                if k not in keys_written:
+                    new_lines.append(f"{k}={v}\n")
 
-    with open(config_path, "w", encoding="utf-8") as f:
-        f.writelines(new_lines)
+            with open(config_path, "w", encoding="utf-8") as f:
+                f.writelines(new_lines)
 
     cmd_senha = f'echo {senha_real}| "{anydesk_path}" --set-password'
     subprocess.run(cmd_senha, shell=True, capture_output=True)
@@ -85,7 +87,7 @@ try:
     id_anydesk = ""
     tentativas = 0
     
-    while (not id_anydesk or id_anydesk == "0") and tentativas < 10:
+    while (not id_anydesk or id_anydesk == "0") and tentativas < 12:
         time.sleep(5)
         resultado = subprocess.run(f'"{anydesk_path}" --get-id', capture_output=True, text=True, shell=True)
         saida_limpa = resultado.stdout.strip() if resultado.stdout else ""
@@ -106,3 +108,4 @@ try:
 
 except Exception:
     pass
+    
