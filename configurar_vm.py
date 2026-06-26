@@ -28,12 +28,13 @@ try:
     if not os.path.exists(anydesk_path):
         anydesk_path = r"C:\Program Files\AnyDesk\AnyDesk.exe"
 
+    print("🛑 Parando completamente o serviço AnyDesk para aplicar as configurações...")
     subprocess.run(["powershell", "-Command", "Stop-Service -Name AnyDesk -Force"], capture_output=True)
     subprocess.run(["taskkill", "/f", "/im", "anydesk.exe"], capture_output=True)
-    time.sleep(2)
+    time.sleep(3)
 
     config_dirs = [r"C:\ProgramData\AnyDesk", os.path.expandvars(r"%APPDATA%\AnyDesk")]
-    
+
     config_override = {
         "ad.security.interactive_connections": "2",
         "ad.security.allow_unattended_access": "1",
@@ -77,9 +78,12 @@ try:
             with open(config_path, "w", encoding="utf-8") as f:
                 f.writelines(new_lines)
 
+    print("🔐 Injetando a senha definida pelo Bot...")
     cmd_senha = f'echo {senha_real}| "{anydesk_path}" --set-password'
     subprocess.run(cmd_senha, shell=True, capture_output=True)
+    time.sleep(2)
 
+    print("🚀 Forçando a inicialização limpa do serviço AnyDesk...")
     subprocess.run(["powershell", "-Command", "Start-Service -Name AnyDesk"], capture_output=True)
     subprocess.Popen(f'start "" "{anydesk_path}" --start', shell=True)
     time.sleep(5)
@@ -87,8 +91,8 @@ try:
     id_anydesk = ""
     tentativas = 0
     
-    while (not id_anydesk or id_anydesk == "0") and tentativas < 12:
-        time.sleep(5)
+    while (not id_anydesk or id_anydesk == "0") and tentativas < 15:
+        time.sleep(4)
         resultado = subprocess.run(f'"{anydesk_path}" --get-id', capture_output=True, text=True, shell=True)
         saida_limpa = resultado.stdout.strip() if resultado.stdout else ""
         id_anydesk = "".join(filter(str.isdigit, saida_limpa))
@@ -97,6 +101,7 @@ try:
     if not id_anydesk:
         id_anydesk = "ERRO_ID"
     
+    print(f"📡 ID capturado: {id_anydesk}. Atualizando banco de dados...")
     url_update = f"{SUPABASE_URL}/rest/v1/chaves_anydesk?id_sessao=eq.{id_sessao}"
     payload = {"anydesk_id": id_anydesk}
     requests.patch(url_update, headers=headers, json=payload)
@@ -106,6 +111,6 @@ try:
     except Exception:
         pass
 
-except Exception:
-    pass
+except Exception as e:
+    print(f"Erro crítico durante a execução: {e}")
     
